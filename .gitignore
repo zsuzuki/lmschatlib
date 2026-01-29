@@ -1,0 +1,38 @@
+# Build artifacts
+/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+
+# CMake build directories
+/build-*/
+
+# Compiled objects
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# Executables
+*.exe
+*.out
+*.app
+
+# IDE/Editor
+.vscode/
+.idea/
+.cache/
+*.swp
+*.swo
+*.swn
+*~
+.DS_Store
+
+# Logs
+*.log
