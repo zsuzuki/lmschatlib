@@ -37,4 +37,7 @@ target_compile_features(lmschat PUBLIC cxx_std_20)
 if(LMSCHAT_BUILD_EXAMPLES)
   add_executable(lmschat_example examples/usage.cpp)
   target_link_libraries(lmschat_example PRIVATE lmschat)
+
+  add_executable(lmschat_one_shot examples/one_shot.cpp)
+  target_link_libraries(lmschat_one_shot PRIVATE lmschat)
 endif()

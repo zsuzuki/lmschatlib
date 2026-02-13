@@ -81,3 +81,10 @@ cmake --build build
 cmake -S . -B build -DLMSCHAT_BUILD_EXAMPLES=ON
 cmake --build build
 ```
+
+1行チャット例 (`examples/one_shot.cpp`) を使う場合:
+
+```bash
+./build/lmschat_one_shot "こんにちは"
+./build/lmschat_one_shot --reasoning high "Rustの所有権を1分で説明して"
+```
