@@ -36,18 +36,24 @@ lmschat::Client client(config);
 lmschat::ChatSession session(client, "zai-org/glm-4.7-flash");
 
 auto r1 = session.send("こんにちは");
+// auto r1 = session.send("こんにちは", lmschat::Reasoning::On);
 // 次回は自動的に previous_response_id を使う
 auto r2 = session.send("次の質問です");
 ```
 
 ## API 概要
 
-- `Client::chat(model, input, previous_response_id)`
+- `Client::chat(model, input, previous_response_id, reasoning)`
   - 1 回のリクエストを送る
 - `ChatSession::send(message)`
   - 直前の `response_id` を自動で引き継いで送る
+- `ChatSession::send(message, reasoning)`
+  - reasoning を指定して送る (`off` / `low` / `medium` / `high` / `on`)
+  - モデルによって許可値が異なるため、未対応値を指定すると 400 が返る
 - `ChatSession::send(message, override_previous_response_id)`
   - 明示的に `previous_response_id` を上書きできる
+- `ChatSession::send(message, override_previous_response_id, reasoning)`
+  - `previous_response_id` と reasoning を同時に指定できる
 - `ChatSession::last_stats()`
   - 最新レスポンスの stats を取得
 

@@ -35,6 +35,7 @@ int main() {
   lmschat::ChatSession session(client, "zai-org/glm-4.7-flash");
 
   auto r1 = session.send("こんにちは");
+  // auto r1 = session.send("こんにちは", lmschat::Reasoning::On);
   std::cout << "response_id: " << r1.response_id << "\n";
   for (const auto &chunk : r1.output) {
     if (chunk.type == "message") {

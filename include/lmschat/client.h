@@ -30,6 +30,14 @@ SOFTWARE.
 
 namespace lmschat {
 
+enum class Reasoning {
+  Off,
+  Low,
+  Medium,
+  High,
+  On,
+};
+
 struct OutputChunk {
   std::string type;
   std::string content;
@@ -62,7 +70,8 @@ class Client {
   explicit Client(ClientConfig config = {});
 
   Response chat(std::string model, std::string input,
-                std::optional<std::string> previous_response_id = std::nullopt);
+                std::optional<std::string> previous_response_id = std::nullopt,
+                std::optional<Reasoning> reasoning = std::nullopt);
 
   void set_api_token(std::optional<std::string> token);
   void set_base_url(std::string url);
@@ -79,7 +88,10 @@ class ChatSession {
   explicit ChatSession(Client client, std::string model);
 
   Response send(std::string message);
+  Response send(std::string message, Reasoning reasoning);
   Response send(std::string message, std::optional<std::string> override_previous_response_id);
+  Response send(std::string message, std::optional<std::string> override_previous_response_id,
+                Reasoning reasoning);
 
   const std::optional<std::string>& previous_response_id() const { return previous_response_id_; }
   const std::optional<Stats>& last_stats() const { return last_stats_; }

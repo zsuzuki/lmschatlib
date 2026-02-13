@@ -237,6 +237,22 @@ std::optional<double> get_double_field(const json::Object& obj, const char* key)
   return it->second.as_number();
 }
 
+std::string_view reasoning_to_string(Reasoning reasoning) {
+  switch (reasoning) {
+    case Reasoning::Off:
+      return "off";
+    case Reasoning::Low:
+      return "low";
+    case Reasoning::Medium:
+      return "medium";
+    case Reasoning::High:
+      return "high";
+    case Reasoning::On:
+      return "on";
+  }
+  throw std::runtime_error("invalid reasoning value");
+}
+
 struct SplitThinkContent {
   std::string content;
   std::string thinking;
@@ -318,9 +334,11 @@ Response parse_response(std::string_view body) {
 }
 
 std::string build_request_body(std::string_view model, std::string_view input,
-                               const std::optional<std::string>& previous_response_id) {
+                               const std::optional<std::string>& previous_response_id,
+                               const std::optional<Reasoning>& reasoning) {
   std::string body;
-  body.reserve(256 + model.size() + input.size() + (previous_response_id ? previous_response_id->size() : 0));
+  body.reserve(288 + model.size() + input.size() +
+               (previous_response_id ? previous_response_id->size() : 0));
   body += "{";
   body += "\"model\":\"";
   body += json::escape_string(model);
@@ -332,6 +350,11 @@ std::string build_request_body(std::string_view model, std::string_view input,
     body += json::escape_string(*previous_response_id);
     body += "\"";
   }
+  if (reasoning) {
+    body += ",\"reasoning\":\"";
+    body += reasoning_to_string(*reasoning);
+    body += "\"";
+  }
   body += "}";
   return body;
 }
@@ -341,11 +364,16 @@ std::string build_request_body(std::string_view model, std::string_view input,
 Client::Client(ClientConfig config) : config_(std::move(config)) {}
 
 Response Client::chat(std::string model, std::string input,
-                      std::optional<std::string> previous_response_id) {
-  std::string body = build_request_body(model, input, previous_response_id);
+                      std::optional<std::string> previous_response_id,
+                      std::optional<Reasoning> reasoning) {
+  std::string body = build_request_body(model, input, previous_response_id, reasoning);
   HttpResponse resp = http_post(config_, "/api/v1/chat", std::move(body));
   if (resp.status_code < 200 || resp.status_code >= 300) {
-    throw std::runtime_error("HTTP error: " + std::to_string(resp.status_code));
+    std::string msg = "HTTP error: " + std::to_string(resp.status_code);
+    if (!resp.body.empty()) {
+      msg += " body: " + resp.body;
+    }
+    throw std::runtime_error(std::move(msg));
   }
   return parse_response(resp.body);
 }
@@ -358,7 +386,16 @@ ChatSession::ChatSession(Client client, std::string model)
     : client_(std::move(client)), model_(std::move(model)) {}
 
 Response ChatSession::send(std::string message) {
-  Response r = client_.chat(model_, std::move(message), previous_response_id_);
+  Response r = client_.chat(model_, std::move(message), previous_response_id_, std::nullopt);
+  if (!r.response_id.empty()) {
+    previous_response_id_ = r.response_id;
+  }
+  last_stats_ = r.stats;
+  return r;
+}
+
+Response ChatSession::send(std::string message, Reasoning reasoning) {
+  Response r = client_.chat(model_, std::move(message), previous_response_id_, reasoning);
   if (!r.response_id.empty()) {
     previous_response_id_ = r.response_id;
   }
@@ -371,6 +408,14 @@ Response ChatSession::send(std::string message, std::optional<std::string> overr
     previous_response_id_ = override_previous_response_id;
   }
   return send(std::move(message));
+}
+
+Response ChatSession::send(std::string message, std::optional<std::string> override_previous_response_id,
+                           Reasoning reasoning) {
+  if (override_previous_response_id) {
+    previous_response_id_ = override_previous_response_id;
+  }
+  return send(std::move(message), reasoning);
 }
 
 }  // namespace lmschat
