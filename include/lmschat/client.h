@@ -33,6 +33,7 @@ namespace lmschat {
 struct OutputChunk {
   std::string type;
   std::string content;
+  std::string thinking;
 };
 
 struct Stats {

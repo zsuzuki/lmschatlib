@@ -4,6 +4,7 @@ LM Studio の REST API ( /api/v1/chat ) を使う C++20 のシンプルなチャ
 サーバー側のステート (`response_id`) を使って会話を継続できます。
 
 ## 特徴
+
 - トークンは必須ではありません (未指定なら Authorization ヘッダーなし)
 - `response_id` を `previous_response_id` として使うチャット継続
 - ユーザーから `previous_response_id` を指定すれば上書き可能
@@ -50,7 +51,14 @@ auto r2 = session.send("次の質問です");
 - `ChatSession::last_stats()`
   - 最新レスポンスの stats を取得
 
+`OutputChunk` は以下を持ちます:
+
+- `type`
+- `content` (`<think>...</think>` を除去した本文)
+- `thinking` (`<think>...</think>` で囲まれた思考テキスト)
+
 ## 注意
+
 - HTTPS は未対応です (ローカル前提の最小実装)
 - エラー時は `std::runtime_error` を投げます
 

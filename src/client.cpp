@@ -237,6 +237,44 @@ std::optional<double> get_double_field(const json::Object& obj, const char* key)
   return it->second.as_number();
 }
 
+struct SplitThinkContent {
+  std::string content;
+  std::string thinking;
+};
+
+SplitThinkContent split_think_content(std::string_view raw_content) {
+  constexpr std::string_view kThinkOpen = "<think>";
+  constexpr std::string_view kThinkClose = "</think>";
+
+  SplitThinkContent result;
+  size_t pos = 0;
+  bool found = false;
+
+  while (pos < raw_content.size()) {
+    const size_t open = raw_content.find(kThinkOpen, pos);
+    if (open == std::string_view::npos) {
+      result.content.append(raw_content.substr(pos));
+      break;
+    }
+
+    result.content.append(raw_content.substr(pos, open - pos));
+    const size_t think_start = open + kThinkOpen.size();
+    const size_t close = raw_content.find(kThinkClose, think_start);
+    if (close == std::string_view::npos) {
+      // Keep malformed trailing content untouched if there is no closing tag.
+      result.content.append(raw_content.substr(open));
+      break;
+    }
+
+    if (found) result.thinking.push_back('\n');
+    result.thinking.append(raw_content.substr(think_start, close - think_start));
+    found = true;
+    pos = close + kThinkClose.size();
+  }
+
+  return result;
+}
+
 Response parse_response(std::string_view body) {
   json::Value root = json::parse(body);
   if (!root.is_object()) throw std::runtime_error("response JSON is not an object");
@@ -259,7 +297,9 @@ Response parse_response(std::string_view body) {
         chunk.type = t->second.as_string();
       }
       if (auto c = o.find("content"); c != o.end() && c->second.is_string()) {
-        chunk.content = c->second.as_string();
+        SplitThinkContent split = split_think_content(c->second.as_string());
+        chunk.content = std::move(split.content);
+        chunk.thinking = std::move(split.thinking);
       }
       r.output.push_back(std::move(chunk));
     }

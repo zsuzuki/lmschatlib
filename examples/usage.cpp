@@ -38,6 +38,9 @@ int main() {
   std::cout << "response_id: " << r1.response_id << "\n";
   for (const auto &chunk : r1.output) {
     if (chunk.type == "message") {
+      if (!chunk.thinking.empty()) {
+        std::cout << "[thinking]\n" << chunk.thinking << "\n";
+      }
       std::cout << chunk.content << "\n";
     }
   }
@@ -46,6 +49,9 @@ int main() {
   std::cout << "response_id: " << r2.response_id << "\n";
   for (const auto &chunk : r2.output) {
     if (chunk.type == "message") {
+      if (!chunk.thinking.empty()) {
+        std::cout << "[thinking]\n" << chunk.thinking << "\n";
+      }
       std::cout << chunk.content << "\n";
     }
   }
