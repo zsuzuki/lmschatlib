@@ -87,4 +87,6 @@ cmake --build build
 ```bash
 ./build/lmschat_one_shot "こんにちは"
 ./build/lmschat_one_shot --reasoning high "Rustの所有権を1分で説明して"
+LMSCHAT_MODEL="openai/gpt-oss-20b" ./build/lmschat_one_shot "環境変数でモデル指定"
+./build/lmschat_one_shot --model "openai/gpt-oss-20b" "オプション指定が優先"
 ```

@@ -24,15 +24,21 @@ SOFTWARE.
 
 #include "lmschat/client.h"
 
+#include <cstdlib>
 #include <iostream>
 #include <optional>
 #include <string>
 
 namespace {
 
+constexpr const char* kDefaultModel = "zai-org/glm-4.7-flash";
+constexpr const char* kModelEnvName = "LMSCHAT_MODEL";
+
 void print_usage(const char* argv0) {
   std::cerr << "Usage: " << argv0
-            << " [--reasoning off|low|medium|high|on] <question>\n";
+            << " [--model <model>] [--reasoning off|low|medium|high|on] <question>\n"
+            << "  model priority: --model > $" << kModelEnvName
+            << " > " << kDefaultModel << "\n";
 }
 
 std::optional<lmschat::Reasoning> parse_reasoning(const std::string& value) {
@@ -47,11 +53,25 @@ std::optional<lmschat::Reasoning> parse_reasoning(const std::string& value) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  std::string model = kDefaultModel;
+  if (const char* env_model = std::getenv(kModelEnvName);
+      env_model != nullptr && env_model[0] != '\0') {
+    model = env_model;
+  }
   std::optional<lmschat::Reasoning> reasoning;
   std::optional<std::string> question;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
+    if (arg == "--model") {
+      if (i + 1 >= argc) {
+        std::cerr << "error: --model requires a value\n";
+        print_usage(argv[0]);
+        return 2;
+      }
+      model = argv[++i];
+      continue;
+    }
     if (arg == "--reasoning") {
       if (i + 1 >= argc) {
         std::cerr << "error: --reasoning requires a value\n";
@@ -82,7 +102,7 @@ int main(int argc, char** argv) {
 
   try {
     lmschat::Client client;
-    lmschat::ChatSession session(std::move(client), "zai-org/glm-4.7-flash");
+    lmschat::ChatSession session(std::move(client), model);
 
     lmschat::Response response = reasoning ? session.send(*question, *reasoning)
                                            : session.send(*question);
