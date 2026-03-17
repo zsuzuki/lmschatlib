@@ -24,6 +24,7 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -42,6 +43,10 @@ struct OutputChunk {
   std::string type;
   std::string content;
   std::string thinking;
+  std::string tool;
+  std::string arguments_json;
+  std::string output_json;
+  std::string provider_info_json;
 };
 
 struct Stats {
@@ -65,10 +70,37 @@ struct ClientConfig {
   int timeout_seconds = 120;
 };
 
+enum class IntegrationType {
+  Plugin,
+  EphemeralMcp,
+};
+
+struct Integration {
+  IntegrationType type = IntegrationType::Plugin;
+  std::string id;
+  std::string server_label;
+  std::string server_url;
+  std::vector<std::string> allowed_tools;
+  std::map<std::string, std::string> headers;
+
+  static Integration plugin(std::string plugin_id,
+                            std::vector<std::string> allowed_tools = {});
+  static Integration ephemeral_mcp(std::string server_label, std::string server_url,
+                                   std::vector<std::string> allowed_tools = {},
+                                   std::map<std::string, std::string> headers = {});
+};
+
+struct ChatOptions {
+  std::optional<std::string> previous_response_id;
+  std::optional<Reasoning> reasoning;
+  std::vector<Integration> integrations;
+};
+
 class Client {
  public:
   explicit Client(ClientConfig config = {});
 
+  Response chat(std::string model, std::string input, ChatOptions options);
   Response chat(std::string model, std::string input,
                 std::optional<std::string> previous_response_id = std::nullopt,
                 std::optional<Reasoning> reasoning = std::nullopt);
@@ -87,8 +119,10 @@ class ChatSession {
  public:
   explicit ChatSession(Client client, std::string model);
 
+  Response send(std::string message, ChatOptions options);
   Response send(std::string message);
   Response send(std::string message, Reasoning reasoning);
+  Response send(std::string message, std::vector<Integration> integrations);
   Response send(std::string message, std::optional<std::string> override_previous_response_id);
   Response send(std::string message, std::optional<std::string> override_previous_response_id,
                 Reasoning reasoning);

@@ -33,12 +33,15 @@ namespace {
 
 constexpr const char* kDefaultModel = "zai-org/glm-4.7-flash";
 constexpr const char* kModelEnvName = "LMSCHAT_MODEL";
+constexpr const char* kApiTokenEnvName = "LMSCHAT_API_TOKEN";
 
 void print_usage(const char* argv0) {
   std::cerr << "Usage: " << argv0
-            << " [--model <model>] [--reasoning off|low|medium|high|on] <question>\n"
+            << " [--model <model>] [--reasoning off|low|medium|high|on]"
+            << " [--plugin <id>]... <question>\n"
             << "  model priority: --model > $" << kModelEnvName
-            << " > " << kDefaultModel << "\n";
+            << " > " << kDefaultModel << "\n"
+            << "  api token: $" << kApiTokenEnvName << " (optional)\n";
 }
 
 std::optional<lmschat::Reasoning> parse_reasoning(const std::string& value) {
@@ -59,6 +62,7 @@ int main(int argc, char** argv) {
     model = env_model;
   }
   std::optional<lmschat::Reasoning> reasoning;
+  std::vector<lmschat::Integration> integrations;
   std::optional<std::string> question;
 
   for (int i = 1; i < argc; ++i) {
@@ -87,6 +91,15 @@ int main(int argc, char** argv) {
       reasoning = parsed;
       continue;
     }
+    if (arg == "--plugin") {
+      if (i + 1 >= argc) {
+        std::cerr << "error: --plugin requires a value\n";
+        print_usage(argv[0]);
+        return 2;
+      }
+      integrations.push_back(lmschat::Integration::plugin(argv[++i]));
+      continue;
+    }
     if (question) {
       std::cerr << "error: question must be a single argument (use quotes)\n";
       print_usage(argv[0]);
@@ -101,17 +114,29 @@ int main(int argc, char** argv) {
   }
 
   try {
-    lmschat::Client client;
+    lmschat::ClientConfig config;
+    if (const char* env_token = std::getenv(kApiTokenEnvName);
+        env_token != nullptr && env_token[0] != '\0') {
+      config.api_token = std::string(env_token);
+    }
+
+    lmschat::Client client(config);
     lmschat::ChatSession session(std::move(client), model);
 
-    lmschat::Response response = reasoning ? session.send(*question, *reasoning)
-                                           : session.send(*question);
+    lmschat::ChatOptions options;
+    options.integrations = integrations;
+    options.reasoning = reasoning;
+    lmschat::Response response = session.send(*question, std::move(options));
     for (const auto& chunk : response.output) {
-      if (chunk.type != "message") continue;
-      if (!chunk.thinking.empty()) {
-        std::cout << "[thinking]\n" << chunk.thinking << "\n";
+      if (chunk.type == "message") {
+        if (!chunk.thinking.empty()) {
+          std::cout << "[thinking]\n" << chunk.thinking << "\n";
+        }
+        std::cout << chunk.content << "\n";
+      } else if (chunk.type == "tool_call") {
+        std::cout << "[tool_call] " << chunk.tool << "\n"
+                  << chunk.arguments_json << "\n";
       }
-      std::cout << chunk.content << "\n";
     }
   } catch (const std::exception& e) {
     std::cerr << "error: " << e.what() << "\n";

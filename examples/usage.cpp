@@ -24,17 +24,27 @@ SOFTWARE.
 
 #include "lmschat/client.h"
 
+#include <cstdlib>
 #include <iostream>
 
 int main() {
   lmschat::ClientConfig config;
   config.base_url = "http://localhost:1234";
-  // config.api_token = std::string("YOUR_TOKEN");
+  if (const char* env_token = std::getenv("LMSCHAT_API_TOKEN");
+      env_token != nullptr && env_token[0] != '\0') {
+    config.api_token = std::string(env_token);
+  }
+  // config.api_token = std::string("YOUR_LM_STUDIO_TOKEN");
 
   lmschat::Client client(config);
   lmschat::ChatSession session(client, "zai-org/glm-4.7-flash");
 
-  auto r1 = session.send("こんにちは");
+  std::vector<lmschat::Integration> integrations = {
+      lmschat::Integration::plugin("mcp/fetch"),
+      lmschat::Integration::plugin("mcp/playwright", {"browser_navigate", "browser_snapshot"}),
+  };
+
+  auto r1 = session.send("こんにちは。必要ならWebを確認して。", integrations);
   // auto r1 = session.send("こんにちは", lmschat::Reasoning::On);
   std::cout << "response_id: " << r1.response_id << "\n";
   for (const auto &chunk : r1.output) {
@@ -43,6 +53,9 @@ int main() {
         std::cout << "[thinking]\n" << chunk.thinking << "\n";
       }
       std::cout << chunk.content << "\n";
+    } else if (chunk.type == "tool_call") {
+      std::cout << "[tool_call] " << chunk.tool << "\n"
+                << chunk.arguments_json << "\n";
     }
   }
 

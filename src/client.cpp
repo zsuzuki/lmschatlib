@@ -26,6 +26,7 @@ SOFTWARE.
 #include "lmschat/json.h"
 
 #include <cerrno>
+#include <cctype>
 #include <cstring>
 #include <netdb.h>
 #include <stdexcept>
@@ -237,6 +238,39 @@ std::optional<double> get_double_field(const json::Object& obj, const char* key)
   return it->second.as_number();
 }
 
+std::string stringify_json(const json::Value& value) {
+  if (value.is_null()) return "null";
+  if (value.is_bool()) return value.as_bool() ? "true" : "false";
+  if (value.is_number()) return std::to_string(value.as_number());
+  if (value.is_string()) {
+    return "\"" + json::escape_string(value.as_string()) + "\"";
+  }
+  if (value.is_array()) {
+    std::string out = "[";
+    bool first = true;
+    for (const auto& item : value.as_array()) {
+      if (!first) out += ",";
+      first = false;
+      out += stringify_json(item);
+    }
+    out += "]";
+    return out;
+  }
+
+  std::string out = "{";
+  bool first = true;
+  for (const auto& [key, item] : value.as_object()) {
+    if (!first) out += ",";
+    first = false;
+    out += "\"";
+    out += json::escape_string(key);
+    out += "\":";
+    out += stringify_json(item);
+  }
+  out += "}";
+  return out;
+}
+
 std::string_view reasoning_to_string(Reasoning reasoning) {
   switch (reasoning) {
     case Reasoning::Off:
@@ -317,6 +351,18 @@ Response parse_response(std::string_view body) {
         chunk.content = std::move(split.content);
         chunk.thinking = std::move(split.thinking);
       }
+      if (auto t = o.find("tool"); t != o.end() && t->second.is_string()) {
+        chunk.tool = t->second.as_string();
+      }
+      if (auto a = o.find("arguments"); a != o.end()) {
+        chunk.arguments_json = stringify_json(a->second);
+      }
+      if (auto out = o.find("output"); out != o.end()) {
+        chunk.output_json = stringify_json(out->second);
+      }
+      if (auto p = o.find("provider_info"); p != o.end()) {
+        chunk.provider_info_json = stringify_json(p->second);
+      }
       r.output.push_back(std::move(chunk));
     }
   }
@@ -333,27 +379,88 @@ Response parse_response(std::string_view body) {
   return r;
 }
 
+std::string build_integrations_json(const std::vector<Integration>& integrations) {
+  std::string out = "[";
+  bool first = true;
+  for (const auto& integration : integrations) {
+    if (!first) out += ",";
+    first = false;
+
+    if (integration.type == IntegrationType::Plugin &&
+        integration.allowed_tools.empty()) {
+      out += "\"";
+      out += json::escape_string(integration.id);
+      out += "\"";
+      continue;
+    }
+
+    out += "{";
+    if (integration.type == IntegrationType::Plugin) {
+      out += "\"type\":\"plugin\",\"id\":\"";
+      out += json::escape_string(integration.id);
+      out += "\"";
+    } else {
+      out += "\"type\":\"ephemeral_mcp\",\"server_label\":\"";
+      out += json::escape_string(integration.server_label);
+      out += "\",\"server_url\":\"";
+      out += json::escape_string(integration.server_url);
+      out += "\"";
+      if (!integration.headers.empty()) {
+        out += ",\"headers\":{";
+        bool first_header = true;
+        for (const auto& [key, value] : integration.headers) {
+          if (!first_header) out += ",";
+          first_header = false;
+          out += "\"";
+          out += json::escape_string(key);
+          out += "\":\"";
+          out += json::escape_string(value);
+          out += "\"";
+        }
+        out += "}";
+      }
+    }
+
+    if (!integration.allowed_tools.empty()) {
+      out += ",\"allowed_tools\":[";
+      for (size_t i = 0; i < integration.allowed_tools.size(); ++i) {
+        if (i > 0) out += ",";
+        out += "\"";
+        out += json::escape_string(integration.allowed_tools[i]);
+        out += "\"";
+      }
+      out += "]";
+    }
+    out += "}";
+  }
+  out += "]";
+  return out;
+}
+
 std::string build_request_body(std::string_view model, std::string_view input,
-                               const std::optional<std::string>& previous_response_id,
-                               const std::optional<Reasoning>& reasoning) {
+                               const ChatOptions& options) {
   std::string body;
   body.reserve(288 + model.size() + input.size() +
-               (previous_response_id ? previous_response_id->size() : 0));
+               (options.previous_response_id ? options.previous_response_id->size() : 0));
   body += "{";
   body += "\"model\":\"";
   body += json::escape_string(model);
   body += "\",\"input\":\"";
   body += json::escape_string(input);
   body += "\"";
-  if (previous_response_id && !previous_response_id->empty()) {
+  if (options.previous_response_id && !options.previous_response_id->empty()) {
     body += ",\"previous_response_id\":\"";
-    body += json::escape_string(*previous_response_id);
+    body += json::escape_string(*options.previous_response_id);
     body += "\"";
   }
-  if (reasoning) {
+  if (options.reasoning) {
     body += ",\"reasoning\":\"";
-    body += reasoning_to_string(*reasoning);
+    body += reasoning_to_string(*options.reasoning);
     body += "\"";
+  }
+  if (!options.integrations.empty()) {
+    body += ",\"integrations\":";
+    body += build_integrations_json(options.integrations);
   }
   body += "}";
   return body;
@@ -363,10 +470,29 @@ std::string build_request_body(std::string_view model, std::string_view input,
 
 Client::Client(ClientConfig config) : config_(std::move(config)) {}
 
-Response Client::chat(std::string model, std::string input,
-                      std::optional<std::string> previous_response_id,
-                      std::optional<Reasoning> reasoning) {
-  std::string body = build_request_body(model, input, previous_response_id, reasoning);
+Integration Integration::plugin(std::string plugin_id,
+                                std::vector<std::string> allowed_tools) {
+  Integration integration;
+  integration.type = IntegrationType::Plugin;
+  integration.id = std::move(plugin_id);
+  integration.allowed_tools = std::move(allowed_tools);
+  return integration;
+}
+
+Integration Integration::ephemeral_mcp(std::string server_label, std::string server_url,
+                                       std::vector<std::string> allowed_tools,
+                                       std::map<std::string, std::string> headers) {
+  Integration integration;
+  integration.type = IntegrationType::EphemeralMcp;
+  integration.server_label = std::move(server_label);
+  integration.server_url = std::move(server_url);
+  integration.allowed_tools = std::move(allowed_tools);
+  integration.headers = std::move(headers);
+  return integration;
+}
+
+Response Client::chat(std::string model, std::string input, ChatOptions options) {
+  std::string body = build_request_body(model, input, options);
   HttpResponse resp = http_post(config_, "/api/v1/chat", std::move(body));
   if (resp.status_code < 200 || resp.status_code >= 300) {
     std::string msg = "HTTP error: " + std::to_string(resp.status_code);
@@ -378,6 +504,15 @@ Response Client::chat(std::string model, std::string input,
   return parse_response(resp.body);
 }
 
+Response Client::chat(std::string model, std::string input,
+                      std::optional<std::string> previous_response_id,
+                      std::optional<Reasoning> reasoning) {
+  ChatOptions options;
+  options.previous_response_id = std::move(previous_response_id);
+  options.reasoning = reasoning;
+  return chat(std::move(model), std::move(input), std::move(options));
+}
+
 void Client::set_api_token(std::optional<std::string> token) { config_.api_token = std::move(token); }
 void Client::set_base_url(std::string url) { config_.base_url = std::move(url); }
 void Client::set_timeout_seconds(int seconds) { config_.timeout_seconds = seconds; }
@@ -385,8 +520,14 @@ void Client::set_timeout_seconds(int seconds) { config_.timeout_seconds = second
 ChatSession::ChatSession(Client client, std::string model)
     : client_(std::move(client)), model_(std::move(model)) {}
 
-Response ChatSession::send(std::string message) {
-  Response r = client_.chat(model_, std::move(message), previous_response_id_, std::nullopt);
+Response ChatSession::send(std::string message, ChatOptions options) {
+  if (options.previous_response_id) {
+    previous_response_id_ = options.previous_response_id;
+  } else {
+    options.previous_response_id = previous_response_id_;
+  }
+
+  Response r = client_.chat(model_, std::move(message), std::move(options));
   if (!r.response_id.empty()) {
     previous_response_id_ = r.response_id;
   }
@@ -394,13 +535,19 @@ Response ChatSession::send(std::string message) {
   return r;
 }
 
+Response ChatSession::send(std::string message) {
+  return send(std::move(message), ChatOptions{.previous_response_id = previous_response_id_});
+}
+
 Response ChatSession::send(std::string message, Reasoning reasoning) {
-  Response r = client_.chat(model_, std::move(message), previous_response_id_, reasoning);
-  if (!r.response_id.empty()) {
-    previous_response_id_ = r.response_id;
-  }
-  last_stats_ = r.stats;
-  return r;
+  return send(std::move(message),
+              ChatOptions{.previous_response_id = previous_response_id_, .reasoning = reasoning});
+}
+
+Response ChatSession::send(std::string message, std::vector<Integration> integrations) {
+  return send(std::move(message),
+              ChatOptions{.previous_response_id = previous_response_id_,
+                          .integrations = std::move(integrations)});
 }
 
 Response ChatSession::send(std::string message, std::optional<std::string> override_previous_response_id) {
