@@ -90,6 +90,13 @@ struct Integration {
                                    std::map<std::string, std::string> headers = {});
 };
 
+struct ImageInput {
+  std::string data_url;
+
+  static ImageInput from_data_url(std::string data_url);
+  static ImageInput from_base64(std::string mime_type, std::string base64_data);
+};
+
 struct ChatOptions {
   std::optional<std::string> previous_response_id;
   std::optional<Reasoning> reasoning;
@@ -101,6 +108,8 @@ class Client {
   explicit Client(ClientConfig config = {});
 
   Response chat(std::string model, std::string input, ChatOptions options);
+  Response chat(std::string model, std::string input, std::vector<ImageInput> images,
+                ChatOptions options = {});
   Response chat(std::string model, std::string input,
                 std::optional<std::string> previous_response_id = std::nullopt,
                 std::optional<Reasoning> reasoning = std::nullopt);
@@ -120,6 +129,8 @@ class ChatSession {
   explicit ChatSession(Client client, std::string model);
 
   Response send(std::string message, ChatOptions options);
+  Response send(std::string message, std::vector<ImageInput> images,
+                ChatOptions options = {});
   Response send(std::string message);
   Response send(std::string message, Reasoning reasoning);
   Response send(std::string message, std::vector<Integration> integrations);

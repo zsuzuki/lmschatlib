@@ -11,6 +11,7 @@ LM Studio の REST API ( `/api/v1/chat` ) を使う C++20 のシンプルなチ�
 - ユーザーから `previous_response_id` を指定すれば上書き可能
 - LM Studio の `integrations` による MCP / プラグイン呼び出し
 - 複数プラグインを同時指定可能
+- VLM 向けの画像入力 (`data:image/...;base64,...`) に対応
 - スタッツは read-only で取得可能
 - URL は `http://localhost:1234` がデフォルト。変更可能
 - 依存最小・mac/linux 向け (POSIX sockets)
@@ -55,14 +56,31 @@ auto r1 = session.send("こんにちは。必要ならWebを確認して。", op
 auto r2 = session.send("次の質問です");
 ```
 
+画像付きで聞く例:
+
+```cpp
+lmschat::ImageInput image = lmschat::ImageInput::from_base64(
+  "image/png",
+  "BASE64_ENCODED_IMAGE_DATA");
+
+auto response = client.chat(
+  "qwen2-vl-2b-instruct",
+  "この画像には何が写っていますか？",
+  {std::move(image)});
+```
+
 ## API 概要
 
 - `Client::chat(model, input, previous_response_id, reasoning)`
   - 1 回のリクエストを送る
 - `Client::chat(model, input, ChatOptions)`
   - `reasoning` / `previous_response_id` / `integrations` をまとめて送る
+- `Client::chat(model, input, std::vector<ImageInput>, ChatOptions)`
+  - 画像を `input` に含めて送る
 - `ChatSession::send(message)`
   - 直前の `response_id` を自動で引き継いで送る
+- `ChatSession::send(message, std::vector<ImageInput>, ChatOptions)`
+  - 会話継続しながら画像付きメッセージを送る
 - `ChatSession::send(message, reasoning)`
   - reasoning を指定して送る (`off` / `low` / `medium` / `high` / `on`)
   - モデルによって許可値が異なるため、未対応値を指定すると 400 が返る
@@ -130,6 +148,25 @@ options.integrations = {
 auto response = session.send("社内仕様を確認して", options);
 ```
 
+## 画像入力
+
+LM Studio REST API の画像入力は base64 data URL を使います。このライブラリでは `ImageInput::from_base64()` か `ImageInput::from_data_url()` で作成します。
+
+```cpp
+lmschat::ImageInput image = lmschat::ImageInput::from_data_url(
+  "data:image/jpeg;base64,...");
+
+lmschat::ChatOptions options;
+options.reasoning = lmschat::Reasoning::Off;
+
+auto response = session.send(
+  "画像を短く説明して",
+  {std::move(image)},
+  options);
+```
+
+LM Studio が扱える画像形式は JPEG / PNG / WebP です。画像入力には VLM (Vision-Language Model) を使ってください。
+
 ## 注意
 
 - HTTPS は未対応です (ローカル前提の最小実装)
@@ -158,4 +195,11 @@ cmake --build build
 LMSCHAT_API_TOKEN="your-lm-studio-token" ./build/lmschat_one_shot --plugin mcp/pagemcp "このページを読んで"
 LMSCHAT_MODEL="openai/gpt-oss-20b" ./build/lmschat_one_shot "環境変数でモデル指定"
 ./build/lmschat_one_shot --model "openai/gpt-oss-20b" "オプション指定が優先"
+```
+
+画像質問例 (`examples/image_question.cpp`) を使う場合:
+
+```bash
+./build/lmschat_image_question ./image.png "この画像には何が写っていますか？"
+LMSCHAT_MODEL="qwen2-vl-2b-instruct" ./build/lmschat_image_question ./image.jpg "要点だけ説明して"
 ```

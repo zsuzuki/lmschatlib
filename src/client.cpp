@@ -437,7 +437,26 @@ std::string build_integrations_json(const std::vector<Integration>& integrations
   return out;
 }
 
+std::string build_input_json(std::string_view input,
+                             const std::vector<ImageInput>& images) {
+  if (images.empty()) {
+    return "\"" + json::escape_string(input) + "\"";
+  }
+
+  std::string out = "[{\"type\":\"text\",\"content\":\"";
+  out += json::escape_string(input);
+  out += "\"}";
+  for (const auto& image : images) {
+    out += ",{\"type\":\"image\",\"data_url\":\"";
+    out += json::escape_string(image.data_url);
+    out += "\"}";
+  }
+  out += "]";
+  return out;
+}
+
 std::string build_request_body(std::string_view model, std::string_view input,
+                               const std::vector<ImageInput>& images,
                                const ChatOptions& options) {
   std::string body;
   body.reserve(288 + model.size() + input.size() +
@@ -445,9 +464,8 @@ std::string build_request_body(std::string_view model, std::string_view input,
   body += "{";
   body += "\"model\":\"";
   body += json::escape_string(model);
-  body += "\",\"input\":\"";
-  body += json::escape_string(input);
-  body += "\"";
+  body += "\",\"input\":";
+  body += build_input_json(input, images);
   if (options.previous_response_id && !options.previous_response_id->empty()) {
     body += ",\"previous_response_id\":\"";
     body += json::escape_string(*options.previous_response_id);
@@ -491,8 +509,37 @@ Integration Integration::ephemeral_mcp(std::string server_label, std::string ser
   return integration;
 }
 
+ImageInput ImageInput::from_data_url(std::string data_url) {
+  ImageInput image;
+  image.data_url = std::move(data_url);
+  return image;
+}
+
+ImageInput ImageInput::from_base64(std::string mime_type, std::string base64_data) {
+  ImageInput image;
+  image.data_url = "data:";
+  image.data_url += std::move(mime_type);
+  image.data_url += ";base64,";
+  image.data_url += std::move(base64_data);
+  return image;
+}
+
 Response Client::chat(std::string model, std::string input, ChatOptions options) {
-  std::string body = build_request_body(model, input, options);
+  std::string body = build_request_body(model, input, {}, options);
+  HttpResponse resp = http_post(config_, "/api/v1/chat", std::move(body));
+  if (resp.status_code < 200 || resp.status_code >= 300) {
+    std::string msg = "HTTP error: " + std::to_string(resp.status_code);
+    if (!resp.body.empty()) {
+      msg += " body: " + resp.body;
+    }
+    throw std::runtime_error(std::move(msg));
+  }
+  return parse_response(resp.body);
+}
+
+Response Client::chat(std::string model, std::string input, std::vector<ImageInput> images,
+                      ChatOptions options) {
+  std::string body = build_request_body(model, input, images, options);
   HttpResponse resp = http_post(config_, "/api/v1/chat", std::move(body));
   if (resp.status_code < 200 || resp.status_code >= 300) {
     std::string msg = "HTTP error: " + std::to_string(resp.status_code);
@@ -528,6 +575,23 @@ Response ChatSession::send(std::string message, ChatOptions options) {
   }
 
   Response r = client_.chat(model_, std::move(message), std::move(options));
+  if (!r.response_id.empty()) {
+    previous_response_id_ = r.response_id;
+  }
+  last_stats_ = r.stats;
+  return r;
+}
+
+Response ChatSession::send(std::string message, std::vector<ImageInput> images,
+                           ChatOptions options) {
+  if (options.previous_response_id) {
+    previous_response_id_ = options.previous_response_id;
+  } else {
+    options.previous_response_id = previous_response_id_;
+  }
+
+  Response r = client_.chat(model_, std::move(message), std::move(images),
+                            std::move(options));
   if (!r.response_id.empty()) {
     previous_response_id_ = r.response_id;
   }
